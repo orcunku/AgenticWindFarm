@@ -4,6 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import requests
+import json
 
 # Page Config
 st.set_page_config(
@@ -13,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom High-End Styling
+# Custom Styling
 st.markdown("""
 <style>
     .main { background-color: #0e1117; }
@@ -38,17 +39,17 @@ page = st.sidebar.radio("Go to:", [
     "2. False Alarm ML Reduction Engine",
     "3. Maintenance Truck Rollout Optimizer",
     "4. Drone Surface Defect Vision",
-    "5. Agentic RAG & MCP Interface"
+    "5. Agentic RAG & MCP Interface",
+    "6. Real-Time Generator Telemetry"
 ])
 
-# Utility function for fetching backend data
+# Helper function for fetching backend data safely
 @st.cache_data(ttl=5)
 def fetch_fleet_data():
     try:
         r = requests.get(f"{BACKEND_URL}/api/fleet/status")
         return r.json()["fleet"]
-    except:
-        # Fallback local data if backend server is starting
+    except Exception:
         return [{"turbine_id": f"T-{i:02d}", "vibration_avg": 1.2, "temp_avg": 60.0, "total_alarms": 5, "predicted_real_faults": 1, "health_status": "HEALTHY", "health_score": 95.0} for i in range(1, 11)]
 
 fleet_data = fetch_fleet_data()
@@ -90,7 +91,7 @@ elif page == "2. False Alarm ML Reduction Engine":
     
     try:
         fa_data = requests.get(f"{BACKEND_URL}/api/false-alarm-analysis").json()
-    except:
+    except Exception:
         fa_data = {"raw_scada_alarms": 120, "isolation_forest_flagged": 45, "rf_classifier_verified_faults": 22, "false_alarms_prevented": 98, "false_alarm_reduction_percentage": 81.67}
         
     c1, c2, c3 = st.columns(3)
@@ -126,21 +127,25 @@ elif page == "3. Maintenance Truck Rollout Optimizer":
     )
     
     if st.button("Run Optimization Algorithms"):
-        res = requests.post(f"{BACKEND_URL}/api/optimize-route", json={"selected_turbines": selected}).json()
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Greedy Nearest-Neighbor Route")
-            st.write(f"**Total Distance:** {res['greedy_nearest_neighbor']['distance_km']} km")
-            st.write(f"**Est. Time:** {res['greedy_nearest_neighbor']['estimated_hours']} hours")
-            st.info(" -> ".join(res['greedy_nearest_neighbor']['route']))
+        try:
+            res = requests.post(f"{BACKEND_URL}/api/optimize-route", json={"selected_turbines": selected}).json()
             
-        with col2:
-            st.subheader("2-Opt Refinement Optimized Path")
-            st.write(f"**Total Distance:** {res['two_opt_optimized']['distance_km']} km")
-            st.write(f"**Est. Time:** {res['two_opt_optimized']['estimated_hours']} hours")
-            st.success(" -> ".join(res['two_opt_optimized']['route']))
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Greedy Nearest-Neighbor Route")
+                st.write(f"**Total Distance:** {res['greedy_nearest_neighbor']['distance_km']} km")
+                st.write(f"**Est. Time:** {res['greedy_nearest_neighbor']['estimated_hours']} hours")
+                st.info(" -> ".join(res['greedy_nearest_neighbor']['route']))
+                
+            with col2:
+                st.subheader("2-Opt Refinement Optimized Path")
+                st.write(f"**Total Distance:** {res['two_opt_optimized']['distance_km']} km")
+                st.write(f"**Est. Time:** {res['two_opt_optimized']['estimated_hours']} hours")
+                st.success(" -> ".join(res['two_opt_optimized']['route']))
+                
+        except requests.exceptions.ConnectionError:
+            st.error("⚠️ Could not connect to the backend server. Make sure `uvicorn backend:app --port 8000` is running.")
 
 # -------------------------------------------------------------------
 # PAGE 4: DRONE SURFACE INSPECTION
@@ -151,19 +156,22 @@ elif page == "4. Drone Surface Defect Vision":
     selected_t = st.selectbox("Select Turbine for Blade Imaging Analysis:", df_fleet["turbine_id"].tolist())
     
     if st.button("Trigger Drone Surface Scan"):
-        scan_res = requests.get(f"{BACKEND_URL}/api/drone/scan/{selected_t}").json()
-        
-        st.subheader(f"Inspection Results for {selected_t}")
-        st.write(f"**Status:** {scan_res['inspection_status']} | **Defects Detected:** {scan_res['defects_found']}")
-        
-        if scan_res['findings']:
-            for item in scan_res['findings']:
-                with st.expander(f"⚠️ {item['defect_type']} - Severity: {item['severity']}"):
-                    st.write(f"**Issue ID:** {item['issue_id']}")
-                    st.write(f"**Location:** {item['location']}")
-                    st.write(f"**Computer Vision Confidence:** {item['confidence'] * 100:.1f}%")
-        else:
-            st.success("No surface defects detected on turbine blades.")
+        try:
+            scan_res = requests.get(f"{BACKEND_URL}/api/drone/scan/{selected_t}").json()
+            
+            st.subheader(f"Inspection Results for {selected_t}")
+            st.write(f"**Status:** {scan_res['inspection_status']} | **Defects Detected:** {scan_res['defects_found']}")
+            
+            if scan_res['findings']:
+                for item in scan_res['findings']:
+                    with st.expander(f"⚠️ {item['defect_type']} - Severity: {item['severity']}"):
+                        st.write(f"**Issue ID:** {item['issue_id']}")
+                        st.write(f"**Location:** {item['location']}")
+                        st.write(f"**Computer Vision Confidence:** {item['confidence'] * 100:.1f}%")
+            else:
+                st.success("No surface defects detected on turbine blades.")
+        except requests.exceptions.ConnectionError:
+            st.error("⚠️ Backend server is unavailable.")
 
 # -------------------------------------------------------------------
 # PAGE 5: AGENTIC RAG & MCP INTERFACE
@@ -172,8 +180,11 @@ elif page == "5. Agentic RAG & MCP Interface":
     st.header("🤖 Model Context Protocol (MCP) & Agentic RAG Center")
     
     st.subheader("Exposed MCP Tools Architecture")
-    mcp_info = requests.get(f"{BACKEND_URL}/mcp/tools").json()
-    st.json(mcp_info)
+    try:
+        mcp_info = requests.get(f"{BACKEND_URL}/mcp/tools").json()
+        st.json(mcp_info)
+    except Exception:
+        st.warning("Could not connect to backend to retrieve MCP schema.")
     
     st.markdown("---")
     st.subheader("Agent Maintenance Diagnostics Prompt")
@@ -187,3 +198,68 @@ elif page == "5. Agentic RAG & MCP Interface":
         st.write("4. Invoked MCP Tool `optimize_truck_rollout` -> Added T-03 to active dispatch schedule.")
         
         st.success("**Diagnostic Resolution:** Turbine T-03 exhibits mechanical friction in main bearing (temp 82°C). Transient noise ruled out. Dispatching technician via 2-Opt optimized route at 08:00 AM.")
+
+# -------------------------------------------------------------------
+# PAGE 6: REAL-TIME GENERATOR TELEMETRY
+# -------------------------------------------------------------------
+elif page == "6. Real-Time Generator Telemetry":
+    st.header("⚡ Real-Time SCADA Generator Stream")
+    st.caption("Receiving live sensor telemetry generated frame-by-frame via WebSockets")
+    
+    if "telemetry_history" not in st.session_state:
+        st.session_state.telemetry_history = []
+        
+    metrics_container = st.empty()
+    chart_container = st.empty()
+    table_container = st.empty()
+    
+    run_stream = st.checkbox("Enable Live Generator Loop", value=True)
+    
+    if run_stream:
+        import websocket
+        
+        ws_url = "ws://localhost:8000/ws/scada/live"
+        
+        try:
+            ws = websocket.create_connection(ws_url)
+            
+            for _ in range(30):
+                if not run_stream:
+                    break
+                    
+                raw_msg = ws.recv()
+                data_frame = json.loads(raw_msg)
+                
+                t1_metrics = next(item for item in data_frame if item["turbine_id"] == "T-01")
+                
+                st.session_state.telemetry_history.append(t1_metrics)
+                if len(st.session_state.telemetry_history) > 20:
+                    st.session_state.telemetry_history.pop(0)
+                
+                history_df = pd.DataFrame(st.session_state.telemetry_history)
+                
+                with metrics_container.container():
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("T-01 Wind Speed", f"{t1_metrics['wind_speed']} m/s")
+                    col2.metric("T-01 Vibration", f"{t1_metrics['vibration']} g")
+                    col3.metric("T-01 Bearing Temp", f"{t1_metrics['bearing_temp']} °C")
+                    col4.metric("T-01 Power Output", f"{t1_metrics['power_kw']} kW")
+                
+                with chart_container.container():
+                    fig = px.line(
+                        history_df,
+                        x="timestamp",
+                        y=["vibration", "bearing_temp"],
+                        title="T-01 Real-Time Sensor Signals (Vibration & Bearing Temp)"
+                    )
+                    fig.update_layout(template="plotly_dark")
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with table_container.container():
+                    st.subheader("Live 10-Turbine Fleet Snapshot")
+                    st.dataframe(pd.DataFrame(data_frame), use_container_width=True)
+                    
+            ws.close()
+            
+        except Exception as e:
+            st.error(f"Failed to connect to generator WebSocket: {e}. Make sure `backend.py` is running.")

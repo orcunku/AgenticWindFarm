@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+import asyncio
+import json
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from scipy.spatial.distance import cdist
@@ -8,9 +10,21 @@ from typing import List, Dict, Any
 
 app = FastAPI(
     title="Wind Turbine SCADA AI & MCP Service",
-    description="Backend AI Pipeline for SCADA False Alarm Filtering, Route Optimization, and Surface Visual Diagnostics",
+    description="Backend AI Pipeline for SCADA False Alarm Filtering, Route Optimization, Drone Surface Diagnostics, and Real-Time WebSocket Streaming",
     version="1.0.0"
 )
+
+# -------------------------------------------------------------------
+# 0. ROOT ENDPOINT
+# -------------------------------------------------------------------
+
+@app.get("/")
+def read_root():
+    return {
+        "status": "Online",
+        "system": "Wind Turbine SCADA AI Engine",
+        "docs_url": "http://localhost:8000/docs"
+    }
 
 # -------------------------------------------------------------------
 # 1. SCADA DATA GENERATOR & FALSE ALARM FILTERING ENGINE
@@ -149,7 +163,6 @@ def optimize_route(req: RouteRequest):
         for i in range(1, len(best_path) - 1):
             for j in range(i + 1, len(best_path)):
                 new_path = best_path[:i] + best_path[i:j][::-1] + best_path[j:]
-                # Calculate distance
                 d = sum(dist_matrix[new_path[k]][new_path[k+1]] for k in range(len(new_path)-1))
                 d += dist_matrix[new_path[-1]][new_path[0]]
                 if d < best_dist:
@@ -161,7 +174,7 @@ def optimize_route(req: RouteRequest):
     return {
         "greedy_nearest_neighbor": {
             "route": [nodes[i] for i in nn_path],
-            "distance_km": round(float(nn_dist * 10), 2), # Scale for realistic KM
+            "distance_km": round(float(nn_dist * 10), 2),
             "estimated_hours": round(float((nn_dist * 10) / 40.0) + (len(nodes)-1)*1.5, 2)
         },
         "two_opt_optimized": {
@@ -233,7 +246,44 @@ def list_mcp_tools():
         ]
     }
 
+# -------------------------------------------------------------------
+# 5. REAL-TIME SCADA TELEMETRY GENERATOR STREAMING (WEBSOCKETS)
+# -------------------------------------------------------------------
+
+@app.websocket("/ws/scada/live")
+async def websocket_scada_stream(websocket: WebSocket):
+    """
+    Real-Time Data Generator Loop:
+    Generates synthetic SCADA sensor telemetry every 1 second
+    and streams it over a WebSocket connection.
+    """
+    await websocket.accept()
+    try:
+        while True:
+            live_payload = []
+            for t_id in range(1, 11):
+                wind_speed = round(float(np.random.uniform(6.0, 20.0)), 2)
+                vibration = round(float(np.random.normal(loc=1.1, scale=0.3)), 3)
+                bearing_temp = round(float(np.random.normal(loc=58.0, scale=8.0)), 2)
+                power_kw = round(float(0.5 * (wind_speed ** 3)), 1)
+                is_anomaly = bool(vibration > 2.0 or bearing_temp > 75.0)
+
+                live_payload.append({
+                    "turbine_id": f"T-{t_id:02d}",
+                    "timestamp": pd.Timestamp.now().strftime("%H:%M:%S"),
+                    "wind_speed": wind_speed,
+                    "vibration": vibration,
+                    "bearing_temp": bearing_temp,
+                    "power_kw": power_kw,
+                    "is_anomaly": is_anomaly
+                })
+            
+            await websocket.send_text(json.dumps(live_payload))
+            await asyncio.sleep(1)
+            
+    except WebSocketDisconnect:
+        print("UI Client disconnected from telemetry stream.")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
