@@ -21,7 +21,7 @@ An enterprise-ready industrial AI platform engineered for real-time wind farm te
 * **Real-Time Telemetry Streaming:** Dynamic WebSocket integration streaming 1-second generator sensor updates directly to interactive telemetry charts.
 
 ---
-
+## 🏗️ System Architecture
 ┌───────────────────────────────────┐
                            │     Streamlit / Bolt UI           │
                            │   (Frontend Dashboard & Stream)   │
@@ -56,5 +56,3 @@ Developer: Orcun Kusdemir
 GitHub: @orcunku
 
                                              
-
-## 🏗️ System Architecture
